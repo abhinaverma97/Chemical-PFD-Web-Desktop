@@ -39,68 +39,14 @@ class OverlayContainer(QWidget):
         self.zoom_in_btn.setFixedSize(30, 30)
         self.zoom_in_btn.clicked.connect(self.canvas.zoom_in)
         
-        # Validation Indicator
-        self.validation_warning_btn = QtWidgets.QPushButton("⚠ Issues Detected")
-        self.validation_warning_btn.setStyleSheet("color: #ef4444; font-weight: bold; border: none; background: transparent; padding-right: 10px;")
-        self.validation_warning_btn.hide() # Hidden by default
-        # Prevent it from taking focus
-        self.validation_warning_btn.setFocusPolicy(Qt.NoFocus)
-        self.validation_warning_btn.setCursor(Qt.ArrowCursor)
-        
-        btn_layout.addWidget(self.validation_warning_btn)
         btn_layout.addWidget(self.zoom_out_btn)
         btn_layout.addWidget(self.zoom_fit_btn)
         btn_layout.addWidget(self.zoom_in_btn)
         
         layout.addWidget(self.toolbar_frame, 0, 0, Qt.AlignBottom | Qt.AlignRight)
         layout.setContentsMargins(0, 0, 20, 20)
-        
-        # Setup polling timer to check canvas validation state
-        self.validation_timer = QTimer(self)
-        self.validation_timer.timeout.connect(self.update_validation_status)
-        self.validation_timer.start(500) # Check every 500ms
 
-    def update_validation_status(self):
-        """Updates the visibility and tooltip of the validation warning based on canvas state."""
-        if not hasattr(self.canvas, "validation_errors"):
-            return
-            
-        errors = self.canvas.validation_errors
-        has_errors = (
-            len(errors.get("isolated", [])) > 0 or
-            len(errors.get("loops", [])) > 0 or
-            len(errors.get("flow_errors", [])) > 0 or
-            errors.get("missing_inlet", False) or
-            errors.get("missing_outlet", False)
-        )
-        
-        if has_errors:
-            # Build detailed tooltip
-            tooltip_lines = []
-            if errors.get("missing_inlet"): tooltip_lines.append("Missing Process Inlet")
-            if errors.get("missing_outlet"): tooltip_lines.append("Missing Process Outlet")
-            
-            iso_count = len(errors.get("isolated", []))
-            if iso_count > 0: tooltip_lines.append(f"{iso_count} Isolated Component(s)")
-            
-            loop_count = len(errors.get("loops", []))
-            if loop_count > 0: tooltip_lines.append(f"{loop_count} Component(s) in Circular Loop")
-            
-            flow_count = len(errors.get("flow_errors", []))
-            if flow_count > 0: tooltip_lines.append(f"{flow_count} Component(s) with Broken Flow")
-            
-            # Show all errors directly on the button text
-            if tooltip_lines:
-                # Join all errors with a separator for the button text
-                all_errors_text = " • ".join(tooltip_lines)
-                self.validation_warning_btn.setText(f"⚠ {all_errors_text}")
-                    
-                # The tooltip still shows the full list with line breaks
-                self.validation_warning_btn.setToolTip("\n".join(f"- {line}" for line in tooltip_lines))
-                
-            self.validation_warning_btn.show()
-        else:
-            self.validation_warning_btn.hide()
+
 
 
 class ImageSubWindow(QMdiSubWindow):

@@ -34,15 +34,18 @@ class GraphValidator:
         isolated = self._find_isolated()
         loops = self._find_loops_dfs()
         
-        flow_errors, missing_inlet, missing_outlet = self._validate_flow_bfs()
+        flow_errors, unreachable_from_inlet, cant_reach_outlet, missing_inlet, missing_outlet = self._validate_flow_bfs()
 
         return {
             "isolated": isolated,
             "loops": loops,
             "flow_errors": flow_errors,
+            "unreachable_from_inlet": unreachable_from_inlet,
+            "cant_reach_outlet": cant_reach_outlet,
             "missing_inlet": missing_inlet,
             "missing_outlet": missing_outlet
         }
+
 
     def _find_isolated(self):
         """Identify components with 0 connections."""
@@ -108,25 +111,24 @@ class GraphValidator:
                     queue.append(neighbor)
 
         flow_errors = set()
-        
-        # 1. Any node that is NOT an isolated node and NOT a loop node,
-        # but is unreachable from an inlet, is a flow error.
+        unreachable_from_inlet = set()
+        cant_reach_outlet = set()
+
+        # 1. Any non-isolated node unreachable from an inlet is a flow error.
         for comp in self.components:
             if self.in_degree[comp] == 0 and self.out_degree[comp] == 0:
-                continue # Handled by isolated check
-                
+                continue
             if comp not in reachable_from_inlets:
-                # If it's acting as a source but we already determined it's not a valid system inlet
-                # Or if it's completely detached from the main flow
                 flow_errors.add(comp)
-                
-        # 2. Trace backwards from outlets: Nodes that never reach an outlet are dead-ends
+                unreachable_from_inlet.add(comp)
+
+        # 2. Trace backwards from outlets: nodes that never reach an outlet are dead-ends
         reachable_to_outlets = set()
         reverse_adj_list = defaultdict(list)
         for u in self.adj_list:
             for v in self.adj_list[u]:
                 reverse_adj_list[v].append(u)
-                
+
         rev_queue = deque(outlets)
         while rev_queue:
             curr = rev_queue.popleft()
@@ -134,11 +136,13 @@ class GraphValidator:
                 reachable_to_outlets.add(curr)
                 for neighbor in reverse_adj_list[curr]:
                     rev_queue.append(neighbor)
-                    
+
         for comp in self.components:
             if self.in_degree[comp] == 0 and self.out_degree[comp] == 0:
                 continue
             if comp not in reachable_to_outlets:
                 flow_errors.add(comp)
+                cant_reach_outlet.add(comp)
 
-        return list(flow_errors), missing_inlet, missing_outlet
+        return list(flow_errors), list(unreachable_from_inlet), list(cant_reach_outlet), missing_inlet, missing_outlet
+
