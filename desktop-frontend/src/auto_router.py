@@ -75,7 +75,7 @@ class AutoRouter:
     DEFAULT_GRID_RESOLUTION = 10
     
     # Padding around components to avoid collision (in grid units)
-    COMPONENT_PADDING = 2
+    COMPONENT_PADDING = 1  # Reduced to allow tighter routing
     
     # Padding around existing connections (in grid units)
     CONNECTION_PADDING = 1
@@ -245,8 +245,10 @@ class AutoRouter:
                 new_path = path + [neighbor]
                 queue.append((neighbor, new_path))
         
-        # No path found, return direct connection (fallback)
-        return [start, end]
+        # No path found, return simple orthogonal fallback
+        # Create L-shaped path instead of diagonal
+        mid_point = QPointF((start.x() + end.x()) / 2, start.y())
+        return [start, mid_point, QPointF((start.x() + end.x()) / 2, end.y()), end]
     
     def _find_nearest_valid_cell(self, grid_point: GridPoint,
                                  bounds: Optional[QRectF] = None) -> GridPoint:
