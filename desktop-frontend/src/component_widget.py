@@ -13,25 +13,34 @@ class ComponentWidget(QWidget):
         self.config = config or {}
         self.renderer = QSvgRenderer(svg_path)
 
-        # Standard component size (closer to web default of 100x100)
-        self.setFixedSize(100, 60)
+        # Dynamic size based on SVG dimensions
+        default_size = self.renderer.defaultSize()
+        w = default_size.width()
+        h = default_size.height()
+
+        if w > 0 and h > 0:
+            scale = 100.0 / max(w, h)
+            new_w = max(20, int(w * scale))
+            new_h = max(20, int(h * scale))
+        else:
+            new_w, new_h = 100, 60
+
+        self.setFixedSize(new_w, new_h)
 
         self.hover_port = None
         self.is_selected = False
         self.drag_start_global = None
         
         self.rotation_angle = 0
-        self.rotation_angle = 0
         self.drag_start_positions = {}
         
         # Validation State
         self.is_valid = True
-        self.critical_error = False  # True only for loops/flow errors, not isolated
         self.validation_error_msg = ""
         
         # Logical Coordinates (True 100% scale geometry)
         # Initialize from current geometry or valid defaults
-        self.logical_rect = QRectF(self.x(), self.y(), 100, 60)
+        self.logical_rect = QRectF(self.x(), self.y(), new_w, new_h)
 
         # Cache for grips to prevent file reading lag during paint events
         self._cached_grips = None
@@ -67,32 +76,27 @@ class ComponentWidget(QWidget):
     
     def calculate_svg_rect(self, content_rect):
         """
-        Calculate the rectangle where the SVG is rendered, preserving its
-        natural aspect ratio (letterboxed and centered inside content_rect).
+        Calculate the actual rectangle where SVG will be rendered.
+        Updated to preserve aspect ratio instead of stretching.
         """
-        natural = self.renderer.defaultSize()
-        if natural.isEmpty() or natural.width() == 0 or natural.height() == 0:
+        default_size = self.renderer.defaultSize()
+        svg_w = default_size.width()
+        svg_h = default_size.height()
+        
+        if svg_w <= 0 or svg_h <= 0:
             return QRectF(content_rect)
-
-        ar = natural.width() / natural.height()
-        cw = content_rect.width()
-        ch = content_rect.height()
-
-        # Fit SVG inside content_rect while keeping its aspect ratio
-        if cw / ch > ar:
-            # Container is wider than SVG — constrain by height
-            rh = ch
-            rw = ch * ar
-        else:
-            # Container is taller than SVG — constrain by width
-            rw = cw
-            rh = cw / ar
-
-        # Center inside the content_rect
-        rx = content_rect.x() + (cw - rw) / 2
-        ry = content_rect.y() + (ch - rh) / 2
-
-        return QRectF(rx, ry, rw, rh)
+            
+        scale_w = content_rect.width() / svg_w
+        scale_h = content_rect.height() / svg_h
+        scale = min(scale_w, scale_h)
+        
+        new_w = svg_w * scale
+        new_h = svg_h * scale
+        
+        x = content_rect.x() + (content_rect.width() - new_w) / 2.0
+        y = content_rect.y() + (content_rect.height() - new_h) / 2.0
+        
+        return QRectF(x, y, new_w, new_h)
     
     def map_svg_to_widget_coords(self, svg_x_percent, svg_y_percent, svg_rect):
         """
@@ -201,11 +205,12 @@ class ComponentWidget(QWidget):
         return grips
 
     def paintEvent(self, event):
-        # Update tooltip: show error only for critical errors, label name for everything else
-        if getattr(self, "critical_error", False) and self.validation_error_msg:
+        # Update tooltip based on validity
+        if not self.is_valid and self.validation_error_msg:
             self.setToolTip(self.validation_error_msg)
         else:
-            self.setToolTip(self.config.get("default_label", self.config.get("name", "")))
+            # We don't want to hide default tooltips if they existed, but currently they are mostly empty
+            self.setToolTip(self.config.get("name", ""))
             
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -227,27 +232,23 @@ class ComponentWidget(QWidget):
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(svg_rect.adjusted(1, 1, -1, -1), 6, 6)
             
-        # Validation Error Indicator — only for critical errors (loops, broken flow)
-        if getattr(self, "critical_error", False):
-            err_color = QColor("#f87171") if app_state.current_theme == "dark" else QColor("#e53e3e")
+        # Validation Error Icon (Badge)
+        if not self.is_valid:
+            error_color = QColor("#f87171") if app_state.current_theme == "dark" else QColor("#ef4444")
+            painter.setBrush(error_color)
+            painter.setPen(Qt.NoPen)
             
-            # Small badge: filled circle with '!' at top-right corner
-            badge_r = 7
-            badge_cx = int(svg_rect.right()) - badge_r + 2
-            badge_cy = int(svg_rect.top()) + badge_r - 2
-            badge_rect = QRectF(badge_cx - badge_r, badge_cy - badge_r, badge_r * 2, badge_r * 2)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(err_color)
-            painter.drawEllipse(badge_rect)
-            from PyQt5.QtGui import QFont
-            font = QFont()
-            font.setBold(True)
-            font.setPixelSize(9)
-            painter.setFont(font)
-            painter.setPen(QPen(Qt.white, 1.0))
-            painter.drawText(badge_rect, Qt.AlignCenter, "!")
-            painter.setPen(Qt.NoPen)
-
+            # Position at top-right corner of the SVG rect
+            radius = 5.5
+            center_x = svg_rect.right() - radius
+            center_y = svg_rect.top() + radius
+            
+            painter.drawEllipse(QPointF(center_x, center_y), radius, radius)
+            
+            # Draw an exclamation mark inside the circle
+            painter.setPen(QPen(Qt.white, 1.5, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(QPointF(center_x, center_y - 2), QPointF(center_x, center_y + 1))
+            painter.drawPoint(QPointF(center_x, center_y + 3))
 
 
         # Label (drawn below SVG, within the extra LABEL_H space added by update_visuals)
@@ -262,14 +263,6 @@ class ComponentWidget(QWidget):
         grips = self.get_grips()
         for idx, grip in enumerate(grips):
             self.draw_dynamic_port(painter, grip, idx, svg_rect)
-
-    def enterEvent(self, event):
-        """Show error tooltip quickly; let OS handle normal tooltips at default speed."""
-        if getattr(self, "critical_error", False) and self.toolTip():
-            from PyQt5.QtCore import QTimer
-            from PyQt5.QtWidgets import QToolTip
-            QTimer.singleShot(100, lambda: QToolTip.showText(self.mapToGlobal(self.rect().center()), self.toolTip(), self))
-        super().enterEvent(event)
 
     def draw_dynamic_port(self, painter, grip, idx, svg_rect):
         """Draw port based on SVG viewBox coordinate mapping"""

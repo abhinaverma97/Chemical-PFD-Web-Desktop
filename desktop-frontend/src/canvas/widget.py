@@ -75,41 +75,25 @@ class CanvasWidget(QWidget):
     def run_validation(self):
         """Re-evaluates the canvas state for graph errors matching PFD rules."""
         validator = GraphValidator(self.components, self.connections)
-        result = validator.validate()
-        self.validation_errors = result
-
+        self.validation_errors = validator.validate()
+        
         # Update component error states
         for comp in self.components:
             comp.is_valid = True
-            comp.critical_error = False
             comp.validation_error_msg = ""
-
+            
             error_msgs = []
-            if comp in self.validation_errors["isolated"]:
-                comp.is_valid = False
-                error_msgs.append("Isolated component (no connections).")
             if comp in self.validation_errors["loops"]:
                 comp.is_valid = False
-                comp.critical_error = True
                 error_msgs.append("Circular loop detected.")
-            elif comp in self.validation_errors["flow_errors"]:
+            if comp in self.validation_errors["flow_errors"]:
                 comp.is_valid = False
-                comp.critical_error = True
-                # Build a specific message depending on which side is broken
-                no_inlet  = comp in self.validation_errors.get("unreachable_from_inlet", [])
-                no_outlet = comp in self.validation_errors.get("cant_reach_outlet", [])
-                if no_inlet and no_outlet:
-                    error_msgs.append("No path from any inlet or to any outlet.")
-                elif no_inlet:
-                    error_msgs.append("No path from any inlet to this component.")
-                elif no_outlet:
-                    error_msgs.append("No path from this component to any outlet.")
-
+                error_msgs.append("Component has no inlet or outlet connections.")
+                
             if error_msgs:
                 comp.validation_error_msg = "\n".join(error_msgs)
-
-            comp.update()
-
+            
+            comp.update() # Trigger repaint to show/hide error styling
 
         # Trigger re-paint on the main canvas (e.g. for global warning indicators)
         self.update()

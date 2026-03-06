@@ -45,8 +45,8 @@ class OverlayContainer(QWidget):
         
         layout.addWidget(self.toolbar_frame, 0, 0, Qt.AlignBottom | Qt.AlignRight)
         layout.setContentsMargins(0, 0, 20, 20)
-
-
+        
+        layout.setContentsMargins(0, 0, 20, 20)
 
 
 class ImageSubWindow(QMdiSubWindow):
