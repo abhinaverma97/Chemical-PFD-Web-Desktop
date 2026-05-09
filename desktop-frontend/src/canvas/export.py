@@ -3,6 +3,7 @@ Export utilities for canvas content.
 """
 import json
 import os
+import datetime
 import pandas as pd
 from PyQt5.QtCore import Qt, QRectF, QPoint, QSizeF, QSize
 from PyQt5.QtGui import QPainter, QImage, QPageSize, QRegion, QColor
@@ -19,6 +20,34 @@ from src.api_client import update_project, get_components
 # ✅ Module-level cache
 _component_cache = None
 _cache_timestamp = None
+
+
+def _display_name(value, default):
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        for key in ("username", "name", "full_name", "email"):
+            nested_value = value.get(key)
+            if nested_value:
+                return str(nested_value)
+        return default
+    text = str(value).strip()
+    return text or default
+
+
+def get_export_metadata(canvas):
+    """Build display metadata for export and report title blocks."""
+    project_name = _display_name(
+        getattr(canvas, "project_name", None) or app_state.current_project_name,
+        "Untitled Project",
+    )
+    created_by = _display_name(app_state.current_user, "Unknown User")
+    export_date = datetime.datetime.now().strftime("%B %d, %Y")
+    return {
+        "project_name": project_name,
+        "created_by": created_by,
+        "date": export_date,
+    }
 
 def get_component_id_map():
     """Get s_no → id mapping with caching (5 min TTL)"""
@@ -491,6 +520,73 @@ def draw_equipment_table(painter, canvas, page_rect, start_y):
             current_x += col_widths[i]
         y += row_height
 
+
+def draw_title_block(painter, rect, metadata):
+    """Draw a small footer/title block in the bottom-right corner."""
+    block_width = min(360, max(250, rect.width() * 0.34))
+    block_height = 92
+    margin = 24
+
+    x = rect.width() - block_width - margin
+    y = rect.height() - block_height - margin
+    block_rect = QRectF(x, y, block_width, block_height)
+
+    painter.save()
+    try:
+        painter.setPen(QColor("#C97B5A"))
+        painter.setBrush(QColor("#FFF8F2"))
+        painter.drawRoundedRect(block_rect, 8, 8)
+
+        label_font = painter.font()
+        label_font.setPointSize(8)
+        label_font.setBold(True)
+        painter.setFont(label_font)
+        painter.setPen(QColor("#6B4A3B"))
+
+        line_gap = 24
+        text_x = block_rect.left() + 14
+        label_y = block_rect.top() + 22
+
+        rows = [
+            ("Project Name", metadata.get("project_name", "Untitled Project")),
+            ("Created By", metadata.get("created_by", "Unknown User")),
+            ("Date", metadata.get("date", datetime.datetime.now().strftime("%B %d, %Y"))),
+        ]
+
+        value_font = painter.font()
+        value_font.setPointSize(9)
+        value_font.setBold(False)
+
+        for index, (label, value) in enumerate(rows):
+            row_y = label_y + (index * line_gap)
+            painter.setFont(label_font)
+            painter.drawText(QRectF(text_x, row_y - 12, 86, 16), Qt.AlignLeft | Qt.AlignVCenter, f"{label}:")
+            painter.setFont(value_font)
+            painter.drawText(QRectF(text_x + 90, row_y - 12, block_width - 104, 16), Qt.AlignLeft | Qt.AlignVCenter, str(value))
+    finally:
+        painter.restore()
+
+
+def compose_export_image(canvas, scale=3.0, footer_height=124):
+    """Render the canvas and append a footer/title block area."""
+    rect = get_content_rect(canvas)
+    base_image = render_to_image(canvas, rect, scale=scale)
+
+    composed = QImage(base_image.width(), base_image.height() + footer_height, QImage.Format_ARGB32)
+    composed.fill(Qt.white)
+
+    painter = QPainter(composed)
+    try:
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        painter.drawImage(0, 0, base_image)
+        draw_title_block(painter, QRectF(0, 0, composed.width(), composed.height()), get_export_metadata(canvas))
+    finally:
+        painter.end()
+
+    return composed
+
 # ---------------------- EXPORT FUNCTIONS ----------------------
 def export_to_image(canvas, filename):
     """Export canvas to high-quality image with proper rendering"""
@@ -509,9 +605,7 @@ def export_to_image(canvas, filename):
         
     try:
         # 3. Export
-        scale_factor = 3.0
-        rect = get_content_rect(canvas)
-        image = render_to_image(canvas, rect, scale=scale_factor)
+        image = compose_export_image(canvas, scale=3.0)
         image.save(filename, quality=100)
     finally:
         # 4. Restore Zoom
@@ -529,9 +623,7 @@ def export_to_pdf(canvas, filename):
         canvas.apply_zoom()
         
     try:
-        rect = get_content_rect(canvas)
-        scale_factor = 4.0
-        image = render_to_image(canvas, rect, scale=scale_factor)
+        image = compose_export_image(canvas, scale=4.0)
         
         # PDF Setup with HighResolution mode
         printer = QPrinter(QPrinter.HighResolution)
@@ -543,7 +635,7 @@ def export_to_pdf(canvas, filename):
         # Use printer's resolution for accurate conversion
         dpi = printer.resolution()
         
-        s = rect.size()
+        s = QSizeF(image.width(), image.height())
         w_mm = (s.width() / dpi) * mm_per_inch
         h_mm = (s.height() / dpi) * mm_per_inch
         
@@ -604,7 +696,7 @@ def generate_report_pdf(canvas, filename):
         
     # Generate
     generator = PDFReportGenerator(filename)
-    generator.generate(data)
+    generator.generate(data, metadata=get_export_metadata(canvas))
     print(f"Report generated at {filename}")
 
 def export_to_excel(canvas, filename):

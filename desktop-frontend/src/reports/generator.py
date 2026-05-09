@@ -6,12 +6,14 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Frame, PageTemplate
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from src.canvas.export import get_export_metadata
 
 class PDFReportGenerator:
     def __init__(self, filename):
         self.filename = filename
         self.width, self.height = A4
         self.styles = getSampleStyleSheet()
+        self.metadata = {}
         self._create_custom_styles()
 
     def _create_custom_styles(self):
@@ -81,19 +83,43 @@ class PDFReportGenerator:
         canvas.setFillColor(colors.gray)
         canvas.drawString(0.5 * inch, A4[1] - 0.5 * inch, f"{now}")
         
-        # --- Footer ---
-        footer_y = 0.5 * inch
-        
-        # Left: Report ID
-        report_id = f"REF-{datetime.datetime.now().strftime('%Y%m%d')}-001"
-        canvas.drawString(0.5 * inch, footer_y, f"Report ID: {report_id}")
-        
-        # Center: Disclaimer
-        canvas.drawCentredString(A4[0] / 2, footer_y, "Confidential - Internal Use Only")
-        
-        # Right: Page X of Y
-        page_num = canvas.getPageNumber()
-        canvas.drawRightString(A4[0] - 0.5 * inch, footer_y, f"Page {page_num}")
+        # --- Footer Title Block ---
+        footer_height = 0.95 * inch
+        block_width = 3.25 * inch
+        block_height = 0.72 * inch
+        block_right = A4[0] - 0.5 * inch
+        block_left = block_right - block_width
+        block_bottom = 0.4 * inch
+        block_top = block_bottom + block_height
+
+        canvas.setStrokeColor(colors.HexColor('#C97B5A'))
+        canvas.setFillColor(colors.HexColor('#FFF8F2'))
+        canvas.roundRect(block_left, block_bottom, block_width, block_height, 8, stroke=1, fill=1)
+
+        label_x = block_left + 0.12 * inch
+        value_x = block_left + 1.02 * inch
+        row_y = block_top - 0.18 * inch
+        row_gap = 0.18 * inch
+
+        metadata = self.metadata or {}
+        rows = [
+            ("Project Name", metadata.get("project_name", "Untitled Project")),
+            ("Created By", metadata.get("created_by", "Unknown User")),
+            ("Date", metadata.get("date", datetime.datetime.now().strftime('%B %d, %Y'))),
+        ]
+
+        canvas.setFont('Helvetica-Bold', 7.5)
+        canvas.setFillColor(colors.HexColor('#6B4A3B'))
+        for label, value in rows:
+            canvas.drawString(label_x, row_y, f"{label}:")
+            canvas.setFont('Helvetica', 8)
+            canvas.drawString(value_x, row_y, str(value))
+            canvas.setFont('Helvetica-Bold', 7.5)
+            row_y -= row_gap
+
+        canvas.setFont('Helvetica', 8)
+        canvas.setFillColor(colors.gray)
+        canvas.drawRightString(A4[0] - 0.5 * inch, 0.28 * inch, f"Page {canvas.getPageNumber()}")
         
         canvas.restoreState()
 
@@ -143,11 +169,12 @@ class PDFReportGenerator:
         ]))
         return t
 
-    def generate(self, data):
+    def generate(self, data, metadata=None):
         """
         Generates the PDF report.
         data: List of dicts with keys: 'tag', 'type', 'description', 's_no'
         """
+        self.metadata = metadata or {}
         
         # 1. Clean Data
         cleaned_data = []
@@ -221,7 +248,7 @@ class PDFReportGenerator:
             leftMargin=1*inch,
             rightMargin=1*inch,
             topMargin=1*inch,
-            bottomMargin=1*inch
+            bottomMargin=1.2*inch
         )
         
         doc.build(story, onFirstPage=self._header_footer, onLaterPages=self._header_footer)

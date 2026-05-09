@@ -671,7 +671,7 @@ class CanvasScreen(QMainWindow):
         options = QtWidgets.QFileDialog.Options()
         filename, filter_type = QtWidgets.QFileDialog.getSaveFileName(
             self, "Save Project to Local Folder", "", 
-            "Process Flow Diagram (*.pfd);;PDF Files (*.pdf);;JPEG Files (*.jpg)", 
+            "Process Flow Diagram (*.pfd);;PDF Files (*.pdf);;JPEG Files (*.jpg);;PNG Files (*.png)", 
             options=options
         )
         
@@ -686,9 +686,12 @@ class CanvasScreen(QMainWindow):
                 QtWidgets.QMessageBox.information(self, "Success", f"Saved to {filename}")
                 return True
                 
-            elif filter_type.startswith("JPEG") or filename.lower().endswith(".jpg"):
-                if not filename.lower().endswith(".jpg"):
-                    filename += ".jpg"
+            elif filter_type.startswith("JPEG") or filter_type.startswith("PNG") or filename.lower().endswith((".jpg", ".jpeg", ".png")):
+                if not filename.lower().endswith((".jpg", ".jpeg", ".png")):
+                    if filter_type.startswith("PNG"):
+                        filename += ".png"
+                    else:
+                        filename += ".jpg"
                 canvas.export_to_image(filename)
                 QtWidgets.QMessageBox.information(self, "Success", f"Saved to {filename}")
                 return True
