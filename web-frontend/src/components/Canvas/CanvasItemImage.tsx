@@ -12,7 +12,7 @@ import { Rect } from "react-konva";
 
 import { calculateAspectFit } from "../../utils/layout";
 
-import { CanvasItemImageProps } from "./types";
+import { CanvasItem, CanvasItemImageProps } from "./types";
 
 const LABEL_OFFSET = 4;
 
@@ -24,6 +24,7 @@ export const CanvasItemImage = ({
   onChange,
   onDragEnd,
   onTransformEnd,
+  stageScale = 1,
   onGripMouseDown,
   onGripMouseEnter,
   onGripMouseLeave,
@@ -34,6 +35,20 @@ export const CanvasItemImage = ({
 
   const groupRef = useRef<Konva.Group>(null);
   const trRef = useRef<Konva.Transformer>(null);
+  // Track Shift key state via a ref so we can read it inside boundBoxFunc
+  // without changing Konva's strict 2-arg boundBoxFunc signature.
+  const shiftHeldRef = useRef(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { shiftHeldRef.current = e.shiftKey; };
+    const onKeyUp   = (e: KeyboardEvent) => { shiftHeldRef.current = e.shiftKey; };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup",   onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup",   onKeyUp);
+    };
+  }, []);
 
   useEffect(() => {
     if (isSelected && trRef.current && groupRef.current) {
@@ -61,20 +76,28 @@ export const CanvasItemImage = ({
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
 
+    // Reset Konva's internal scale back to 1 — we store true pixel dimensions
     node.scaleX(1);
     node.scaleY(1);
 
-    const updatedItem = {
+    // Zoom-aware 20px logical minimum: at zoom 0.5 the threshold is 40 screen px
+    const MIN_PX = 20 / (stageScale > 0 ? stageScale : 1);
+
+    const updatedItem: CanvasItem = {
       ...item,
       x: node.x(),
       y: node.y(),
-      width: Math.max(5, item.width * Math.abs(scaleX)),
-      height: Math.max(5, item.height * Math.abs(scaleY)),
+      width: Math.max(MIN_PX, item.width * Math.abs(scaleX)),
+      height: Math.max(MIN_PX, item.height * Math.abs(scaleY)),
       rotation: node.rotation(),
     };
 
-    onChange(updatedItem);
+    // ① Fire the commit callback FIRST so Editor.tsx can push ONE undo snapshot.
+    //    (onTransformEnd is only called at drag-end, not on every pixel moved.)
     onTransformEnd?.(updatedItem);
+
+    // ② Also update visual state so grips / labels reposition immediately.
+    onChange(updatedItem);
   };
 
   const labelText = item.label || item.name;
@@ -166,8 +189,23 @@ export const CanvasItemImage = ({
         <Transformer
           ref={trRef}
           boundBoxFunc={(oldBox, newBox) => {
-            // Prevent shrinking too small
-            if (newBox.width < 10 || newBox.height < 10) {
+            // Zoom-aware 20px logical minimum
+            const MIN = 20 / (stageScale > 0 ? stageScale : 1);
+
+            // Shift key → lock aspect ratio regardless of which handle is dragged
+            if (shiftHeldRef.current) {
+              const ratio = oldBox.width / oldBox.height;
+              const dw = Math.abs(newBox.width - oldBox.width);
+              const dh = Math.abs(newBox.height - oldBox.height);
+              if (dw >= dh) {
+                newBox = { ...newBox, height: newBox.width / ratio };
+              } else {
+                newBox = { ...newBox, width: newBox.height * ratio };
+              }
+            }
+
+            // Enforce minimum — revert if either dimension would go below 20px
+            if (newBox.width < MIN || newBox.height < MIN) {
               return oldBox;
             }
 
@@ -175,13 +213,17 @@ export const CanvasItemImage = ({
           }}
           enabledAnchors={[
             "top-left",
+            "top-center",
             "top-right",
+            "middle-left",
+            "middle-right",
             "bottom-left",
+            "bottom-center",
             "bottom-right",
           ]}
-          flipEnabled={false} // Disable flipping to prevent negative scale issues
-          keepRatio={true} // Enforce aspect ratio scaling
-          rotateEnabled={false} // Disable rotation
+          flipEnabled={false}   // Prevent negative-scale artifacts
+          keepRatio={false}     // Ratio is controlled manually via Shift in boundBoxFunc
+          rotateEnabled={false} // Rotation not needed for PFD components
         />
       )}
 

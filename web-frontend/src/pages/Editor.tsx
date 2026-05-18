@@ -1357,6 +1357,34 @@ export default function Editor() {
     }
   };
 
+  /**
+   * Called ONCE when the user finishes a resize gesture (Konva onTransformEnd).
+   * Writes the final dimensions to the store in a single atomic update so only
+   * ONE undo snapshot is pushed — mirroring the desktop ResizeCommand pattern.
+   * Also resets waypoints on connected pipes so they re-route around the new bounds.
+   */
+  const handleResizeEnd = (item: CanvasItem) => {
+    if (!projectId) return;
+
+    // Single atomic store write = single undo entry
+    editorStore.updateItem(projectId, item.id, {
+      x: item.x,
+      y: item.y,
+      width: item.width,
+      height: item.height,
+      rotation: item.rotation,
+    });
+
+    // Reset waypoints for all pipes attached to this component so they re-route
+    const relatedConnections = connections.filter(
+      (conn) => conn.sourceItemId === item.id || conn.targetItemId === item.id,
+    );
+
+    relatedConnections.forEach((conn) => {
+      editorStore.updateConnection(projectId, conn.id, { waypoints: [] });
+    });
+  };
+
   const handleSelectItem = (
     itemId: number,
     e?: Konva.KonvaEventObject<MouseEvent>,
@@ -2087,6 +2115,7 @@ export default function Editor() {
                     isInvalid={isInvalid}
                     isSelected={selectedItemIds.has(item.id)}
                     item={item}
+                    stageScale={stageScale}
                     onChange={(newAttrs) =>
                       handleUpdateItem(newAttrs.id, newAttrs)
                     }
@@ -2094,6 +2123,7 @@ export default function Editor() {
                     onGripMouseEnter={handleGripMouseEnter}
                     onGripMouseLeave={handleGripMouseLeave}
                     onSelect={(e) => handleSelectItem(item.id, e)}
+                    onTransformEnd={handleResizeEnd}
                   />
                 );
               })}
