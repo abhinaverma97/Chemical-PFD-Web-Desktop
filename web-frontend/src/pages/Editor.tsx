@@ -75,13 +75,7 @@ import {
   importFromDiagramFile,
   migrateExportData,
 } from "@/utils/diagramExport";
-// import {
-//   getProject,
-//   saveProject,
-//   createProject,
-//   type SavedProject,
-//   convertToBackendFormat,
-// } from "@/utils/projectStorage";
+import { appendFooterToImage } from "@/utils/exportFooter";
 import {
   createProject,
   fetchProject,
@@ -603,7 +597,7 @@ export default function Editor() {
       tempStage.batchDraw();
 
       // Generate data URL from temp stage
-      const dataUrl = tempStage.toDataURL({
+      let dataUrl = tempStage.toDataURL({
         pixelRatio,
         mimeType,
         quality,
@@ -612,6 +606,13 @@ export default function Editor() {
       // Clean up temp stage
       tempStage.destroy();
       document.body.removeChild(tempContainer);
+
+      // Append Footer Block (mimicking PyQt title block)
+      const projectName = projectMetadata?.name || "Untitled Project";
+      const createdBy = localStorage.getItem("username") || "Unknown User";
+      const exportDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      
+      dataUrl = await appendFooterToImage(dataUrl, projectName, createdBy, exportDate, backgroundFill, pixelRatio);
 
       /* =========================
      PDF EXPORT - FIXED
@@ -2354,8 +2355,9 @@ export default function Editor() {
         />
 
         <ExportReportModal
-          editorId={projectId ?? ""}
+          editorId={projectId || ""}
           open={showReportModal}
+          projectName={projectMetadata?.name || "Untitled Project"}
           onClose={() => setShowReportModal(false)}
         />
 
